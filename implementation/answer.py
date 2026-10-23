@@ -1,3 +1,6 @@
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from openai import OpenAI
 from dotenv import load_dotenv
 from chromadb import PersistentClient
@@ -5,7 +8,7 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from implementation.llm import local_completion
+from implementation.llm import local_completion, logger
 
 
 load_dotenv(override=True)
@@ -16,15 +19,15 @@ SUMMARIES_PATH = Path(__file__).parent.parent / "summaries"
 
 collection_name = "docs"
 embedding_model = "text-embedding-3-large"
-wait = wait_exponential(multiplier=1, min=10, max=240)
+wait = wait_exponential(multiplier=1, min=1, max=8)
 
 openai = OpenAI()
 
 chroma = PersistentClient(path=DB_NAME)
 collection = chroma.get_or_create_collection(collection_name)
 
-RETRIEVAL_K = 20
-FINAL_K = 10
+RETRIEVAL_K = 8
+FINAL_K = 5
 
 SYSTEM_PROMPT = """
 You are a knowledgeable, friendly assistant representing the company Insurellm.
@@ -49,7 +52,6 @@ class RankOrder(BaseModel):
     )
 
 
-@retry(wait=wait, stop=stop_after_attempt(3))
 def rerank(question, chunks):
     system_prompt = """
 You are a document re-ranker.
@@ -61,16 +63,30 @@ Reply only with the list of ranked chunk ids, nothing else. Include all the chun
     user_prompt = f"The user has asked the following question:\n\n{question}\n\nOrder all the chunks of text by relevance to the question, from most relevant to least relevant. Include all the chunk ids you are provided with, reranked.\n\n"
     user_prompt += "Here are the chunks:\n\n"
     for index, chunk in enumerate(chunks):
-        user_prompt += f"# CHUNK ID: {index + 1}:\n\n{chunk.page_content}\n\n"
+        user_prompt += f"# CHUNK ID: {index + 1}:\n\n{chunk_preview(chunk)}\n\n"
     user_prompt += "Reply only with the list of ranked chunk ids, nothing else."
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    response = local_completion(messages=messages, response_format=RankOrder)
+    response = local_completion(
+        messages=messages,
+        response_format=RankOrder,
+        reasoning_effort="low",
+        max_tokens=200,
+    )
     reply = response.choices[0].message.content
     order = RankOrder.model_validate_json(reply).order
-    return [chunks[i - 1] for i in order]
+    ranked = []
+    seen = set()
+    for index in order:
+        if isinstance(index, int) and 1 <= index <= len(chunks) and index not in seen:
+            ranked.append(chunks[index - 1])
+            seen.add(index)
+    for chunk in chunks:
+        if chunk not in ranked:
+            ranked.append(chunk)
+    return ranked
 
 
 def make_rag_messages(question, history, chunks):
@@ -112,8 +128,15 @@ user: What role covers? -> Query: What role FooBar covers?
 
 IMPORTANT: Respond ONLY with the precise knowledgebase query, nothing else.
 """
-    response = local_completion(messages=[{"role": "system", "content": message}])
-    return response.choices[0].message.content
+    response = local_completion(
+        messages=[{"role": "system", "content": message}],
+        reasoning_effort="low",
+        max_tokens=80,
+    )
+    rewritten = (response.choices[0].message.content or "").strip()
+    if rewritten.lower().startswith("query:"):
+        rewritten = rewritten.split(":", 1)[1].strip()
+    return rewritten
 
 
 def merge_chunks(chunks, reranked):
@@ -125,23 +148,48 @@ def merge_chunks(chunks, reranked):
     return merged
 
 
+def chunk_preview(chunk) -> str:
+    """Headline and summary only, so reranking does not reread every source document."""
+    return "\n\n".join(chunk.page_content.split("\n\n", 2)[:2])[:500]
+
+
+def embed_questions(questions: list[str]) -> list[list[float]]:
+    response = openai.embeddings.create(model=embedding_model, input=questions)
+    return [item.embedding for item in response.data]
+
+
+def fetch_by_embedding(embedding):
+    results = collection.query(query_embeddings=[embedding], n_results=RETRIEVAL_K)
+    return [
+        Result(page_content=document, metadata=metadata)
+        for document, metadata in zip(results["documents"][0], results["metadatas"][0])
+    ]
+
+
 def fetch_context_unranked(question):
-    query = openai.embeddings.create(model=embedding_model, input=[question]).data[0].embedding
-    results = collection.query(query_embeddings=[query], n_results=RETRIEVAL_K)
-    chunks = []
-    for result in zip(results["documents"][0], results["metadatas"][0]):
-        chunks.append(Result(page_content=result[0], metadata=result[1]))
-    return chunks
+    return fetch_by_embedding(embed_questions([question])[0])
 
 
 def fetch_context(original_question, history=None):
-    rewritten_question = rewrite_query(original_question, history)
-    print(rewritten_question)
-    chunks1 = fetch_context_unranked(original_question)
-    chunks2 = fetch_context_unranked(rewritten_question)
-    chunks = merge_chunks(chunks1, chunks2)
-    reranked = rerank(original_question, chunks)
-    return reranked[:FINAL_K]
+    history = history or []
+    if history:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            rewrite_future = pool.submit(rewrite_query, original_question, history)
+            chunks = fetch_context_unranked(original_question)
+            rewritten_question = (rewrite_future.result() or "").strip()
+        logger.info("Rewritten query: %s", rewritten_question)
+        if rewritten_question and rewritten_question.lower() != original_question.strip().lower():
+            chunks = merge_chunks(chunks, fetch_context_unranked(rewritten_question))
+    else:
+        chunks = fetch_context_unranked(original_question)
+
+    if len(chunks) <= 1:
+        return chunks
+    try:
+        return rerank(original_question, chunks)[:FINAL_K]
+    except Exception as exc:
+        logger.warning("Rerank failed (%s). Using vector search order.", exc)
+        return chunks[:FINAL_K]
 
 
 @retry(wait=wait, stop=stop_after_attempt(3))
@@ -149,7 +197,15 @@ def answer_question(question: str, history: list[dict] = []) -> tuple[str, list]
     """
     Answer a question using RAG and return the answer and the retrieved context
     """
+    started = time.perf_counter()
     chunks = fetch_context(question, history)
+    retrieved = time.perf_counter()
     messages = make_rag_messages(question, history, chunks)
-    response = local_completion(messages=messages)
+    response = local_completion(messages=messages, reasoning_effort="low")
+    logger.info(
+        "Responded in %.1fs (retrieve %.1fs, generate %.1fs).",
+        time.perf_counter() - started,
+        retrieved - started,
+        time.perf_counter() - retrieved,
+    )
     return response.choices[0].message.content, chunks

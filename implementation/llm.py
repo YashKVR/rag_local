@@ -190,19 +190,6 @@ def free_bytes() -> int:
 
 
 def read_hardware() -> tuple[list[tuple[str, float]], float]:
-    gpus = []
-    if shutil.which("nvidia-smi"):
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.splitlines():
-                name, memory = (part.strip() for part in line.split(",", 1))
-                gpus.append((name, int(memory) / 1024))
-
     ram_gb = 0.0
     with open("/proc/meminfo", encoding="utf-8") as meminfo:
         for line in meminfo:
@@ -210,12 +197,66 @@ def read_hardware() -> tuple[list[tuple[str, float]], float]:
                 ram_gb = int(line.split()[1]) / 1024 / 1024
                 break
 
+    gpus = []
+    if shutil.which("nvidia-smi"):
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,addressing_mode",
+                "--format=csv,noheader,nounits",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if "," not in line:
+                    continue
+                name, rest = (part.strip() for part in line.split(",", 1))
+                fields = [part.strip() for part in rest.split(",")]
+                memory = fields[0]
+                mode = fields[1] if len(fields) > 1 else ""
+                memory_gb = _memory_gb(memory)
+                if memory_gb is None and mode in {"ATS", "HMM"} and ram_gb > 0:
+                    logger.info(
+                        "%s reports framebuffer memory as %s because addressing mode is %s. "
+                        "Using %.1f GB of system RAM as its memory budget.",
+                        name,
+                        memory,
+                        mode,
+                        ram_gb,
+                    )
+                    memory_gb = ram_gb
+                if memory_gb is None:
+                    logger.info("Skipping %s because nvidia-smi reported memory as %s.", name, memory)
+                    continue
+                gpus.append((name, memory_gb))
+
     if gpus:
         gpu_text = ", ".join(f"{name} with {memory:.1f} GB" for name, memory in gpus)
     else:
         gpu_text = "no NVIDIA GPU detected"
     logger.info("Hardware: %s; system RAM %.1f GB.", gpu_text, ram_gb)
     return gpus, ram_gb
+
+
+def _memory_gb(memory: str) -> float | None:
+    """Convert an nvidia-smi memory value in MiB to GB. Unified-memory GPUs report [N/A]."""
+    token = memory.strip().strip("[]")
+    if not token or token.upper() == "N/A":
+        return None
+    try:
+        return int(token) / 1024
+    except ValueError:
+        return None
 
 
 def choose_model(installed: set[str], gpus: list[tuple[str, float]], ram_gb: float) -> str:
