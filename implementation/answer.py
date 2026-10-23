@@ -30,8 +30,8 @@ RETRIEVAL_K = 8
 FINAL_K = 5
 
 SYSTEM_PROMPT = """
-You are a knowledgeable, friendly assistant representing the company Insurellm.
-You are chatting with a user about Insurellm.
+You are Local Rag, a knowledgeable, friendly assistant.
+You answer questions from the documents in the knowledge base.
 Your answer will be evaluated for accuracy, relevance and completeness, so make sure it only answers the question and fully answers it.
 If you don't know the answer, say so.
 For context, here are specific extracts from the Knowledge Base that might be directly relevant to the user's question:

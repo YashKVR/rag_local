@@ -18,10 +18,10 @@ from multiprocessing import Pool
 import httpx
 
 QUESTIONS = [
-    "When was Insurellm founded?",
-    "How many employees does Insurellm have?",
+    "When was the company founded?",
+    "How many employees does the company have?",
     "What is Carllm?",
-    "Where is the Insurellm headquarters?",
+    "Where is the headquarters?",
 ]
 
 
@@ -97,7 +97,7 @@ def litellm_call(base_url: str, question: str, timeout: float) -> Outcome:
     started = time.perf_counter()
     try:
         response = litellm.completion(
-            model="openai/insurellm",
+            model="openai/local-rag",
             api_base=f"{base_url}/v1",
             api_key="local",
             messages=[{"role": "user", "content": question}],
@@ -149,7 +149,7 @@ async def async_litellm(base_url: str, question: str, timeout: float) -> Outcome
     started = time.perf_counter()
     try:
         response = await litellm.acompletion(
-            model="openai/insurellm",
+            model="openai/local-rag",
             api_base=f"{base_url}/v1",
             api_key="local",
             messages=[{"role": "user", "content": question}],
@@ -223,7 +223,7 @@ def warmup(base_url: str, timeout: float) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Load test the Insurellm RAG API.")
+    parser = argparse.ArgumentParser(description="Load test the Local Rag API.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--mode", choices=["asyncio", "threads", "processes", "ramp", "all"], default="ramp")
     parser.add_argument("--client", choices=["http", "litellm"], default="http")

@@ -31,7 +31,7 @@ def format_context(context):
     if not context:
         return (
             "No context was retrieved. The knowledge base has no documents yet. "
-            "Run ingestion before expecting answers from the Insurellm files."
+            "Run ingestion before expecting answers from the knowledge base files."
         )
     result = "<h2 style='color: #ff7800;'>Relevant Context</h2>\n\n"
     for doc in context:
@@ -66,8 +66,8 @@ def main():
 
     theme = gr.themes.Soft(font=["Inter", "system-ui", "sans-serif"])
 
-    with gr.Blocks(title="Insurellm Expert Assistant") as ui:
-        gr.Markdown("# 🏢 Insurellm Expert Assistant\nAsk me anything about Insurellm!")
+    with gr.Blocks(title="Local Rag") as ui:
+        gr.Markdown("# Local Rag\nAsk a question about the knowledge base.")
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -78,7 +78,7 @@ def main():
                 )
                 message = gr.Textbox(
                     label="Your Question",
-                    placeholder="Ask anything about Insurellm...",
+                    placeholder="Ask a question about the knowledge base...",
                     show_label=False,
                 )
 

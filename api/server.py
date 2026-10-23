@@ -65,7 +65,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "insurellm"
+    model: str = "local-rag"
     messages: list[ChatMessage]
 
 
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Insurellm RAG API", lifespan=lifespan)
+app = FastAPI(title="Local Rag", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -250,7 +250,7 @@ def index():
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run the Insurellm RAG API.")
+    parser = argparse.ArgumentParser(description="Run the Local Rag API.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(

@@ -73,11 +73,11 @@ def make_prompt(document):
     return f"""
 You take a document and you split the document into overlapping chunks for a KnowledgeBase.
 
-The document is from the shared drive of a company called Insurellm.
+The document is from the local knowledge base.
 The document is of type: {document["type"]}
 The document has been retrieved from: {document["source"]}
 
-A chatbot will use these chunks to answer questions about the company.
+A chatbot will use these chunks to answer questions about the knowledge base.
 You should divide up the document as you see fit, being sure that the entire document is returned across the chunks - don't leave anything out.
 This document should probably be split into at least {how_many} chunks, but you can have more or less as appropriate, ensuring that there are individual chunks to answer specific questions.
 There should be overlap between the chunks as appropriate; typically about 25% overlap or about 50 words, so you have the same text in multiple chunks for best retrieval results.

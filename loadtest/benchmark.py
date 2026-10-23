@@ -21,10 +21,10 @@ import httpx
 from loadtest.run import percentile
 
 # Same questions, same order, on every machine.
-WARMUP = "When was Insurellm founded?"
+WARMUP = "When was the company founded?"
 SEQUENTIAL = [
-    "How many employees does Insurellm have?",
-    "Where is the Insurellm headquarters?",
+    "How many employees does the company have?",
+    "Where is the headquarters?",
     "What is Carllm?",
     "What is Homellm?",
     "What is Claimllm?",
@@ -34,8 +34,8 @@ CONCURRENT = [
     "What is Markellm?",
     "What is Lifellm?",
     "What is Healthllm?",
-    "How many products does Insurellm offer?",
-    "Which cities does Insurellm have offices in?",
+    "How many products are offered?",
+    "Which cities have offices?",
 ]
 CONCURRENCY = 2
 
