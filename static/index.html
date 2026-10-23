@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Insurellm Expert Assistant</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --line: #e7e5e4;
+      --paper: #fafaf9;
+      --panel: #ffffff;
+      --accent: #c2410c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    header {
+      padding: 20px 28px 8px;
+    }
+    header h1 { margin: 0; font-size: 1.4rem; }
+    header p { margin: 6px 0 0; color: var(--muted); }
+    main {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 16px;
+      padding: 12px 28px 28px;
+      height: calc(100vh - 92px);
+    }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    section h2 {
+      margin: 0;
+      padding: 14px 16px;
+      font-size: 0.95rem;
+      border-bottom: 1px solid var(--line);
+    }
+    #log, #context {
+      overflow: auto;
+      padding: 16px;
+      flex: 1;
+    }
+    .msg { margin: 0 0 14px; white-space: pre-wrap; }
+    .msg strong { color: var(--accent); }
+    form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); }
+    textarea {
+      flex: 1;
+      resize: none;
+      min-height: 52px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      font: inherit;
+    }
+    button {
+      background: var(--accent);
+      color: white;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 16px;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .source { margin: 0 0 16px; }
+    .source span { display: block; color: var(--accent); font-size: 0.85rem; margin-bottom: 4px; }
+    @media (max-width: 800px) {
+      main { grid-template-columns: 1fr; height: auto; }
+      #log, #context { max-height: 50vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Insurellm Expert Assistant</h1>
+    <p>Questions go to the local RAG API.</p>
+  </header>
+  <main>
+    <section>
+      <h2>Conversation</h2>
+      <div id="log"></div>
+      <form id="form">
+        <textarea id="question" placeholder="Ask anything about Insurellm..." required></textarea>
+        <button id="send" type="submit">Send</button>
+      </form>
+    </section>
+    <section>
+      <h2>Retrieved context</h2>
+      <div id="context">Retrieved context will appear here.</div>
+    </section>
+  </main>
+  <script>
+    const history = [];
+    const log = document.querySelector("#log");
+    const context = document.querySelector("#context");
+    const form = document.querySelector("#form");
+    const question = document.querySelector("#question");
+    const send = document.querySelector("#send");
+
+    function addMessage(role, text) {
+      const block = document.createElement("p");
+      block.className = "msg";
+      const who = document.createElement("strong");
+      who.textContent = role === "user" ? "You" : "Assistant";
+      block.append(who, document.createTextNode("\n" + text));
+      log.append(block);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function showContext(items, elapsed) {
+      context.replaceChildren();
+      const note = document.createElement("p");
+      note.className = "msg";
+      note.textContent = elapsed ? `Answered in ${(elapsed / 1000).toFixed(1)}s.` : "";
+      context.append(note);
+      if (!items.length) {
+        const empty = document.createElement("p");
+        empty.textContent = "No context was retrieved.";
+        context.append(empty);
+        return;
+      }
+      for (const item of items) {
+        const block = document.createElement("article");
+        block.className = "source";
+        const label = document.createElement("span");
+        label.textContent = item.source.split("/").slice(-2).join("/");
+        const body = document.createElement("p");
+        body.textContent = item.text.slice(0, 700);
+        block.append(label, body);
+        context.append(block);
+      }
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = question.value.trim();
+      if (!text) return;
+      addMessage("user", text);
+      question.value = "";
+      send.disabled = true;
+      try {
+        const response = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: text, history }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || response.statusText);
+        }
+        addMessage("assistant", payload.answer);
+        history.push({ role: "user", content: text }, { role: "assistant", content: payload.answer });
+        showContext(payload.context || [], payload.elapsed_ms);
+      } catch (error) {
+        addMessage("assistant", "The request failed: " + error.message);
+      } finally {
+        send.disabled = false;
+        question.focus();
+      }
+    });
+  </script>
+</body>
+</html>

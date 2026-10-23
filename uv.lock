@@ -3181,25 +3181,31 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "chromadb" },
+    { name = "fastapi" },
     { name = "gradio" },
+    { name = "httpx" },
     { name = "litellm" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "tenacity" },
     { name = "tqdm" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "chromadb", specifier = ">=1.5.9" },
+    { name = "fastapi", specifier = ">=0.161.1" },
     { name = "gradio", specifier = ">=6.30.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "litellm", specifier = ">=1.106.2" },
     { name = "openai", specifier = ">=2.54.0" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "tenacity", specifier = ">=9.2.1" },
     { name = "tqdm", specifier = ">=4.70.1" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 
 [[package]]

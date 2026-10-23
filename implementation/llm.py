@@ -55,8 +55,33 @@ def prepare_local_model() -> str:
         gpus, _ram_gb = read_hardware()
         _gpu_gb = sum(memory for _, memory in gpus)
         _selected = choose_model(_installed, gpus, _ram_gb)
+        hold_model_loaded(_selected)
         _ready = True
         return _selected
+
+
+def hold_model_loaded(tag: str) -> None:
+    """Keep the Ollama model and its KV cache resident between requests."""
+    payload = json.dumps(
+        {
+            "model": tag,
+            "prompt": "ok",
+            "stream": False,
+            "keep_alive": -1,
+            "options": {"num_predict": 1},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        f"{OLLAMA_API_BASE}/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            response.read()
+        logger.info("Holding %s in memory so later requests skip a model reload.", tag)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        logger.warning("Could not pin %s in memory: %s", tag, exc)
 
 
 def local_completion(**kwargs):
