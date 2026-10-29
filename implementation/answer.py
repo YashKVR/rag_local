@@ -1,27 +1,23 @@
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from openai import OpenAI
 from dotenv import load_dotenv
 from chromadb import PersistentClient
 from pydantic import BaseModel, Field
 from pathlib import Path
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from implementation.embeddings import embed_texts
 from implementation.llm import local_completion, logger
 
 
 load_dotenv(override=True)
 
 DB_NAME = str(Path(__file__).parent.parent / "preprocessed_db")
-KNOWLEDGE_BASE_PATH = Path(__file__).parent.parent / "knowledge-base"
-SUMMARIES_PATH = Path(__file__).parent.parent / "summaries"
 
 collection_name = "docs"
-embedding_model = "text-embedding-3-large"
 wait = wait_exponential(multiplier=1, min=1, max=8)
-
-openai = OpenAI()
 
 chroma = PersistentClient(path=DB_NAME)
 collection = chroma.get_or_create_collection(collection_name)
@@ -89,9 +85,21 @@ Reply only with the list of ranked chunk ids, nothing else. Include all the chun
     return ranked
 
 
+def source_label(chunk) -> str:
+    metadata = chunk.metadata or {}
+    label = metadata.get("source", "document")
+    page = metadata.get("page")
+    section = metadata.get("section") or ""
+    if page:
+        label += f", page {page}"
+    if section:
+        label += f", {section}"
+    return label
+
+
 def make_rag_messages(question, history, chunks):
     context = "\n\n".join(
-        f"Extract from {chunk.metadata['source']}:\n{chunk.page_content}" for chunk in chunks
+        f"Extract from {source_label(chunk)}:\n{chunk.page_content}" for chunk in chunks
     )
     system_prompt = SYSTEM_PROMPT.format(context=context)
     return (
@@ -154,8 +162,7 @@ def chunk_preview(chunk) -> str:
 
 
 def embed_questions(questions: list[str]) -> list[list[float]]:
-    response = openai.embeddings.create(model=embedding_model, input=questions)
-    return [item.embedding for item in response.data]
+    return embed_texts(questions, "query")
 
 
 def fetch_by_embedding(embedding):
@@ -166,8 +173,44 @@ def fetch_by_embedding(embedding):
     ]
 
 
+COMMON_WORDS = {
+    "about", "after", "allowed", "also", "company", "days", "designation", "does",
+    "employee", "employees", "from", "grade", "holiday", "hirect", "how", "leave",
+    "many", "policy", "promotion", "that", "the", "this", "what", "when", "where",
+    "which", "with", "year",
+}
+
+
+def fetch_rare_mentions(question: str) -> list[Result]:
+    """Pull chunks that contain an uncommon word from the question.
+
+    Promotion rows share one sentence shape, so a person's name is a small part
+    of the embedding and vector search misses them. A word that appears in only
+    a few chunks is specific enough to add directly.
+    """
+    tokens = re.findall(r"[A-Za-z][A-Za-z.'-]{2,}", question)
+    found: list[Result] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if token.lower() in COMMON_WORDS:
+            continue
+        variants = {token, token.title()}
+        for variant in variants:
+            matches = collection.get(where_document={"$contains": variant}, include=["documents", "metadatas"])
+            ids = matches.get("ids") or []
+            if not ids or len(ids) > 3:
+                continue
+            for document, metadata, chunk_id in zip(matches["documents"], matches["metadatas"], ids):
+                if chunk_id in seen:
+                    continue
+                seen.add(chunk_id)
+                found.append(Result(page_content=document, metadata=metadata))
+    return found
+
+
 def fetch_context_unranked(question):
-    return fetch_by_embedding(embed_questions([question])[0])
+    chunks = fetch_by_embedding(embed_questions([question])[0])
+    return merge_chunks(chunks, fetch_rare_mentions(question))
 
 
 def fetch_context(original_question, history=None):

@@ -1,16 +1,16 @@
 # Local Rag
 
-A local retrieval-augmented assistant over the documents in `knowledge-base/`. The files there now are dummy data and can be replaced.
+A local retrieval-augmented assistant over the company PDFs in `knowledge-files/`.
 
-Questions are embedded with OpenAI, matched in a local Chroma index, and answered by a gpt-oss model served by Ollama through LiteLLM. FastAPI exposes that pipeline to a small web UI and to any OpenAI-compatible client. A single benchmark scores a machine so you can compare PCs.
+Questions and documents are embedded locally with `nomic-embed-text`, matched in a local Chroma index, and answered by a gpt-oss model served by Ollama through LiteLLM. FastAPI exposes that pipeline to a small web UI and to any OpenAI-compatible client. A single benchmark scores a machine so you can compare PCs.
 
 ## What you need
 
 - Linux with an NVIDIA GPU, or another machine that can run Ollama
 - [uv](https://docs.astral.sh/uv/) and Python 3.11 (this repo pins 3.11 in `.python-version`)
 - [Ollama](https://ollama.com/)
-- An OpenAI API key, used only for `text-embedding-3-large`
 - About 16 GB of memory for `gpt-oss:20b` (about 14 GB on disk). `gpt-oss:120b` is used only when a GPU has about 80 GB of memory and the 65 GB model is installed
+- About 300 MB more disk for `nomic-embed-text`, which ingest downloads if it is missing
 
 The app picks the model on startup. On a 24 GB GPU it stays on gpt-oss 20B.
 
@@ -38,15 +38,9 @@ ollama serve
 
 ## Environment file
 
-Create `.env` in the repo root. It is gitignored. Do not commit it.
+Ingest and answers run locally. No API key is required.
 
-```bash
-OPENAI_API_KEY=sk-your-key-here
-```
-
-`OPENAI_API_KEY` is required. Ingestion and answering both call OpenAI to embed text.
-
-These are optional. Defaults are shown:
+These settings are optional. Defaults are shown. Put them in `.env` in the repo root if you want to change them. That file is gitignored.
 
 ```bash
 RAG_MAX_INFLIGHT=2
@@ -60,8 +54,7 @@ RAG_CACHE_TTL=600
 
 Dependencies are assumed installed (`uv sync` has been run). Do this once per machine:
 
-1. Put `.env` in the repo root with `OPENAI_API_KEY`.
-2. Pull the model the hardware can run:
+1. Pull the model the hardware can run:
 
 ```bash
 ollama pull gpt-oss:20b
@@ -69,13 +62,15 @@ ollama pull gpt-oss:20b
 
 Pull `gpt-oss:120b` only on a machine with about 80 GB of GPU memory and about 65 GB of free disk.
 
-3. Build the search index from `knowledge-base/`. This walks every markdown file, chunks it with the local model, and embeds the chunks. On the RTX 4090 this took about 45 minutes for 76 files.
+2. Put the company PDFs in `knowledge-files/`. That folder is gitignored because the files include employee records.
+
+3. Build the search index. This reads each PDF, splits policies on their numbered headings, turns holiday and promotion tables into one row per chunk, and embeds the chunks locally:
 
 ```bash
 uv run python -m implementation.ingest
 ```
 
-The index is written to `preprocessed_db/`. Repeat this command if the markdown files change.
+The index is written to `preprocessed_db/`. Repeat this command when a PDF is added or replaced.
 
 4. Start the API:
 
@@ -83,7 +78,7 @@ The index is written to `preprocessed_db/`. Repeat this command if the markdown 
 uv run python -m api.server --port 8000
 ```
 
-5. Open http://127.0.0.1:8000/ and ask a question about the documents, for example "How many employees does the company have?" The page shows the answer and the retrieved sources.
+5. Open http://127.0.0.1:8000/ and ask a question about the documents, for example "How many privilege leave days does an O1 employee in Nashik get?" The page shows the answer and the retrieved sources.
 
 Health check:
 

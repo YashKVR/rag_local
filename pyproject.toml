@@ -12,6 +12,7 @@ dependencies = [
     "litellm>=1.106.2",
     "openai>=2.54.0",
     "pydantic>=2.14.1",
+    "pymupdf>=2.0",
     "python-dotenv>=1.2.4",
     "tenacity>=9.2.1",
     "tqdm>=4.70.1",

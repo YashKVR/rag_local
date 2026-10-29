@@ -22,3 +22,6 @@ preprocessed_db/
 
 # Machine benchmark output
 benchmark-*.json
+
+# Company PDFs. The promotion list includes employee names and ids.
+knowledge-files/
