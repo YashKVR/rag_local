@@ -127,9 +127,10 @@ Each run writes `benchmark-<hostname>.json`. Copy those files into one folder an
 |---|---|---|
 | `GET` | `/` | Chat page |
 | `GET` | `/health` | Model name, queue depth, cache size |
-| `POST` | `/ask` | `{ "question": "...", "history": [] }` |
+| `POST` | `/api/ask` | JSON answer for the React app. `POST /ask` is the same route |
+| `POST` | `/api/ask/stream` | The same answer as server-sent events |
 | `POST` | `/v1/chat/completions` | OpenAI-compatible chat for LiteLLM |
 
-`POST /ask` returns `answer`, `context`, `elapsed_ms`, `queue_ms`, and `cached`.
+The request and response shapes, the streaming events, and a React `fetch` example are in [docs/frontend-api.md](docs/frontend-api.md). Interactive schemas are at http://127.0.0.1:8000/docs while the server is running.
 
 Point LiteLLM at this server with `api_base` `http://127.0.0.1:8000/v1`, model `openai/local-rag`, and any non-empty `api_key` such as `local`.

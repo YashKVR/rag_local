@@ -252,3 +252,62 @@ def answer_question(question: str, history: list[dict] = []) -> tuple[str, list]
         time.perf_counter() - retrieved,
     )
     return response.choices[0].message.content, chunks
+
+
+def _delta_text(chunk) -> str:
+    if not getattr(chunk, "choices", None):
+        return ""
+    delta = chunk.choices[0].delta
+    content = getattr(delta, "content", None)
+    if content is None and isinstance(delta, dict):
+        content = delta.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                parts.append(str(part.get("text") or ""))
+        return "".join(parts)
+    return ""
+
+
+def iter_answer_tokens(messages: list[dict]):
+    """Yield answer text as the local model produces it.
+
+    A failure before the first token is retried. A failure after text has
+    already been sent is raised, so the caller does not repeat words.
+    """
+    started = False
+    for attempt in range(3):
+        try:
+            response = local_completion(messages=messages, reasoning_effort="low", stream=True)
+            for chunk in response:
+                text = _delta_text(chunk)
+                if text:
+                    started = True
+                    yield text
+            return
+        except Exception:
+            if started or attempt == 2:
+                raise
+            time.sleep(min(8, 2**attempt))
+
+
+def stream_answer(question: str, history: list[dict] | None = None):
+    """Yield ("context", chunks) once, then ("token", text) for each piece of the answer."""
+    started = time.perf_counter()
+    chunks = fetch_context(question, history or [])
+    retrieved = time.perf_counter()
+    yield ("context", chunks)
+    messages = make_rag_messages(question, history or [], chunks)
+    for text in iter_answer_tokens(messages):
+        yield ("token", text)
+    logger.info(
+        "Streamed in %.1fs (retrieve %.1fs, generate %.1fs).",
+        time.perf_counter() - started,
+        retrieved - started,
+        time.perf_counter() - retrieved,
+    )
